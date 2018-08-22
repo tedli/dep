@@ -190,6 +190,7 @@ type SourceManagerConfig struct {
 	Cachedir       string        // Where to store local instances of upstream sources.
 	Logger         *log.Logger   // Optional info/warn logger. Discards if nil.
 	DisableLocking bool          // True if the SourceManager should NOT use a lock file to protect the Cachedir from multiple processes.
+	ProxyURL       string
 }
 
 // NewSourceManager produces an instance of gps's built-in SourceManager.
@@ -291,7 +292,7 @@ func NewSourceManager(c SourceManagerConfig) (*SourceMgr, error) {
 
 	ctx, cf := context.WithCancel(context.TODO())
 	superv := newSupervisor(ctx)
-	deducer := newDeductionCoordinator(superv)
+	deducer := newDeductionCoordinator(superv, c.ProxyURL)
 
 	var sc sourceCache
 	if c.CacheAge > 0 {

@@ -82,16 +82,16 @@ var (
 	pathvld     = regexp.MustCompile(`^([A-Za-z0-9-]+)(\.[A-Za-z0-9-]+)+(/[A-Za-z0-9-_.~]+)*$`)
 )
 
-func pathDeducerTrie() *deducerTrie {
+func pathDeducerTrie(proxyURL string) *deducerTrie {
 	dxt := newDeducerTrie()
 
-	dxt.Insert("github.com/", githubDeducer{regexp: ghRegex})
-	dxt.Insert("gopkg.in/", gopkginDeducer{regexp: gpinNewRegex})
-	dxt.Insert("bitbucket.org/", bitbucketDeducer{regexp: bbRegex})
-	dxt.Insert("launchpad.net/", launchpadDeducer{regexp: lpRegex})
-	dxt.Insert("git.launchpad.net/", launchpadGitDeducer{regexp: glpRegex})
-	dxt.Insert("hub.jazz.net/", jazzDeducer{regexp: jazzRegex})
-	dxt.Insert("git.apache.org/", apacheDeducer{regexp: apacheRegex})
+	dxt.Insert("github.com/", githubDeducer{regexp: ghRegex, proxyURL: proxyURL})
+	dxt.Insert("gopkg.in/", gopkginDeducer{regexp: gpinNewRegex, proxyURL: proxyURL})
+	dxt.Insert("bitbucket.org/", bitbucketDeducer{regexp: bbRegex, proxyURL: proxyURL})
+	dxt.Insert("launchpad.net/", launchpadDeducer{regexp: lpRegex, proxyURL: proxyURL})
+	dxt.Insert("git.launchpad.net/", launchpadGitDeducer{regexp: glpRegex, proxyURL: proxyURL})
+	dxt.Insert("hub.jazz.net/", jazzDeducer{regexp: jazzRegex, proxyURL: proxyURL})
+	dxt.Insert("git.apache.org/", apacheDeducer{regexp: apacheRegex, proxyURL: proxyURL})
 
 	return dxt
 }
@@ -108,7 +108,8 @@ type pathDeducer interface {
 }
 
 type githubDeducer struct {
-	regexp *regexp.Regexp
+	regexp   *regexp.Regexp
+	proxyURL string
 }
 
 func (m githubDeducer) deduceRoot(path string) (string, error) {
@@ -138,7 +139,7 @@ func (m githubDeducer) deduceSource(path string, u *url.URL) (maybeSources, erro
 		if u.Scheme == "ssh" {
 			u.User = url.User("git")
 		}
-		return maybeSources{maybeGitSource{url: u}}, nil
+		return maybeSources{maybeGitSource{url: u, proxyURL: m.proxyURL}}, nil
 	}
 
 	mb := make(maybeSources, len(gitSchemes))
@@ -148,14 +149,15 @@ func (m githubDeducer) deduceSource(path string, u *url.URL) (maybeSources, erro
 			u2.User = url.User("git")
 		}
 		u2.Scheme = scheme
-		mb[k] = maybeGitSource{url: &u2}
+		mb[k] = maybeGitSource{url: &u2, proxyURL: m.proxyURL}
 	}
 
 	return mb, nil
 }
 
 type bitbucketDeducer struct {
-	regexp *regexp.Regexp
+	regexp   *regexp.Regexp
+	proxyURL string
 }
 
 func (m bitbucketDeducer) deduceRoot(path string) (string, error) {
@@ -189,7 +191,7 @@ func (m bitbucketDeducer) deduceSource(path string, u *url.URL) (maybeSources, e
 				// superset of the hg schemes
 				return nil, fmt.Errorf("%s is not a valid scheme for accessing a git repository", u.Scheme)
 			}
-			return maybeSources{maybeGitSource{url: u}}, nil
+			return maybeSources{maybeGitSource{url: u, proxyURL: m.proxyURL}}, nil
 		} else if ishg {
 			if !validhg {
 				return nil, fmt.Errorf("%s is not a valid scheme for accessing an hg repository", u.Scheme)
@@ -202,7 +204,7 @@ func (m bitbucketDeducer) deduceSource(path string, u *url.URL) (maybeSources, e
 		// No other choice, make an option for both git and hg
 		return maybeSources{
 			maybeHgSource{url: u},
-			maybeGitSource{url: u},
+			maybeGitSource{url: u, proxyURL: m.proxyURL},
 		}, nil
 	}
 
@@ -229,7 +231,7 @@ func (m bitbucketDeducer) deduceSource(path string, u *url.URL) (maybeSources, e
 				u2.User = url.User("git")
 			}
 			u2.Scheme = scheme
-			mb = append(mb, maybeGitSource{url: &u2})
+			mb = append(mb, maybeGitSource{url: &u2, proxyURL: m.proxyURL})
 		}
 	}
 
@@ -237,7 +239,8 @@ func (m bitbucketDeducer) deduceSource(path string, u *url.URL) (maybeSources, e
 }
 
 type gopkginDeducer struct {
-	regexp *regexp.Regexp
+	regexp   *regexp.Regexp
+	proxyURL string
 }
 
 func (m gopkginDeducer) deduceRoot(p string) (string, error) {
@@ -308,6 +311,7 @@ func (m gopkginDeducer) deduceSource(p string, u *url.URL) (maybeSources, error)
 			url:      &u2,
 			major:    major,
 			unstable: unstable,
+			proxyURL: m.proxyURL,
 		}
 	}
 
@@ -315,7 +319,8 @@ func (m gopkginDeducer) deduceSource(p string, u *url.URL) (maybeSources, error)
 }
 
 type launchpadDeducer struct {
-	regexp *regexp.Regexp
+	regexp   *regexp.Regexp
+	proxyURL string
 }
 
 func (m launchpadDeducer) deduceRoot(path string) (string, error) {
@@ -356,7 +361,8 @@ func (m launchpadDeducer) deduceSource(path string, u *url.URL) (maybeSources, e
 }
 
 type launchpadGitDeducer struct {
-	regexp *regexp.Regexp
+	regexp   *regexp.Regexp
+	proxyURL string
 }
 
 func (m launchpadGitDeducer) deduceRoot(path string) (string, error) {
@@ -382,21 +388,22 @@ func (m launchpadGitDeducer) deduceSource(path string, u *url.URL) (maybeSources
 		if !validateVCSScheme(u.Scheme, "git") {
 			return nil, fmt.Errorf("%s is not a valid scheme for accessing a git repository", u.Scheme)
 		}
-		return maybeSources{maybeGitSource{url: u}}, nil
+		return maybeSources{maybeGitSource{url: u, proxyURL: m.proxyURL}}, nil
 	}
 
 	mb := make(maybeSources, len(gitSchemes))
 	for k, scheme := range gitSchemes {
 		u2 := *u
 		u2.Scheme = scheme
-		mb[k] = maybeGitSource{url: &u2}
+		mb[k] = maybeGitSource{url: &u2, proxyURL: m.proxyURL}
 	}
 
 	return mb, nil
 }
 
 type jazzDeducer struct {
-	regexp *regexp.Regexp
+	regexp   *regexp.Regexp
+	proxyURL string
 }
 
 func (m jazzDeducer) deduceRoot(path string) (string, error) {
@@ -422,14 +429,15 @@ func (m jazzDeducer) deduceSource(path string, u *url.URL) (maybeSources, error)
 		u.Scheme = "https"
 		fallthrough
 	case "https":
-		return maybeSources{maybeGitSource{url: u}}, nil
+		return maybeSources{maybeGitSource{url: u, proxyURL: m.proxyURL}}, nil
 	default:
 		return nil, fmt.Errorf("IBM's jazz hub only supports https, %s is not allowed", u.String())
 	}
 }
 
 type apacheDeducer struct {
-	regexp *regexp.Regexp
+	regexp   *regexp.Regexp
+	proxyURL string
 }
 
 func (m apacheDeducer) deduceRoot(path string) (string, error) {
@@ -454,21 +462,22 @@ func (m apacheDeducer) deduceSource(path string, u *url.URL) (maybeSources, erro
 		if !validateVCSScheme(u.Scheme, "git") {
 			return nil, fmt.Errorf("%s is not a valid scheme for accessing a git repository", u.Scheme)
 		}
-		return maybeSources{maybeGitSource{url: u}}, nil
+		return maybeSources{maybeGitSource{url: u, proxyURL: m.proxyURL}}, nil
 	}
 
 	mb := make(maybeSources, len(gitSchemes))
 	for k, scheme := range gitSchemes {
 		u2 := *u
 		u2.Scheme = scheme
-		mb[k] = maybeGitSource{url: &u2}
+		mb[k] = maybeGitSource{url: &u2, proxyURL: m.proxyURL}
 	}
 
 	return mb, nil
 }
 
 type vcsExtensionDeducer struct {
-	regexp *regexp.Regexp
+	regexp   *regexp.Regexp
+	proxyURL string
 }
 
 func (m vcsExtensionDeducer) deduceRoot(path string) (string, error) {
@@ -500,7 +509,7 @@ func (m vcsExtensionDeducer) deduceSource(path string, u *url.URL) (maybeSources
 
 			switch v[4] {
 			case "git":
-				return maybeSources{maybeGitSource{url: u}}, nil
+				return maybeSources{maybeGitSource{url: u, proxyURL: m.proxyURL}}, nil
 			case "bzr":
 				return maybeSources{maybeBzrSource{url: u}}, nil
 			case "hg":
@@ -516,7 +525,7 @@ func (m vcsExtensionDeducer) deduceSource(path string, u *url.URL) (maybeSources
 		case "git":
 			schemes = gitSchemes
 			f = func(k int, u *url.URL) {
-				mb[k] = maybeGitSource{url: u}
+				mb[k] = maybeGitSource{url: u, proxyURL: m.proxyURL}
 			}
 		case "bzr":
 			schemes = bzrSchemes
@@ -559,13 +568,15 @@ type deductionCoordinator struct {
 	mut      sync.RWMutex
 	rootxt   *radix.Tree
 	deducext *deducerTrie
+	proxyURL string
 }
 
-func newDeductionCoordinator(superv *supervisor) *deductionCoordinator {
+func newDeductionCoordinator(superv *supervisor, proxyURL string) *deductionCoordinator {
 	dc := &deductionCoordinator{
 		suprvsr:  superv,
 		rootxt:   radix.New(),
-		deducext: pathDeducerTrie(),
+		deducext: pathDeducerTrie(proxyURL),
+		proxyURL: proxyURL,
 	}
 
 	return dc
@@ -635,6 +646,7 @@ func (dc *deductionCoordinator) deduceRootPath(ctx context.Context, path string)
 			dc.rootxt.Insert(pd.root, pd.mb)
 			dc.mut.Unlock()
 		},
+		proxyURL: dc.proxyURL,
 	}
 
 	// Save the hmd in the rootxt so that calls checking on similar
@@ -681,7 +693,7 @@ func (dc *deductionCoordinator) deduceKnownPaths(path string) (pathDeduction, er
 	}
 
 	// Next, try the vcs extension-based (infix) matcher
-	exm := vcsExtensionDeducer{regexp: vcsExtensionRegex}
+	exm := vcsExtensionDeducer{regexp: vcsExtensionRegex, proxyURL: dc.proxyURL}
 	if root, err := exm.deduceRoot(path); err == nil {
 		mb, err := exm.deduceSource(path, u)
 		if err != nil {
@@ -704,6 +716,7 @@ type httpMetadataDeducer struct {
 	basePath   string
 	returnFunc func(pathDeduction)
 	suprvsr    *supervisor
+	proxyURL   string
 }
 
 func (hmd *httpMetadataDeducer) deduce(ctx context.Context, path string) (pathDeduction, error) {
@@ -721,7 +734,7 @@ func (hmd *httpMetadataDeducer) deduce(ctx context.Context, path string) (pathDe
 		// Make the HTTP call to attempt to retrieve go-get metadata
 		var root, vcs, reporoot string
 		err = hmd.suprvsr.do(ctx, path, ctHTTPMetadata, func(ctx context.Context) error {
-			root, vcs, reporoot, err = getMetadata(ctx, path, u.Scheme)
+			root, vcs, reporoot, err = getMetadata(ctx, path, u.Scheme, hmd.proxyURL)
 			if err != nil {
 				err = errors.Wrapf(err, "unable to read metadata")
 			}
@@ -759,7 +772,7 @@ func (hmd *httpMetadataDeducer) deduce(ctx context.Context, path string) (pathDe
 
 		switch vcs {
 		case "git":
-			pd.mb = maybeSources{maybeGitSource{url: repoURL}}
+			pd.mb = maybeSources{maybeGitSource{url: repoURL, proxyURL: hmd.proxyURL}}
 		case "bzr":
 			pd.mb = maybeSources{maybeBzrSource{url: repoURL}}
 		case "hg":
@@ -824,22 +837,22 @@ func normalizeURI(p string) (*url.URL, string, error) {
 }
 
 // fetchMetadata fetches the remote metadata for path.
-func fetchMetadata(ctx context.Context, path, scheme string) (rc io.ReadCloser, err error) {
+func fetchMetadata(ctx context.Context, path, scheme, proxyURL string) (rc io.ReadCloser, err error) {
 	if scheme == "http" {
-		rc, err = doFetchMetadata(ctx, "http", path)
+		rc, err = doFetchMetadata(ctx, "http", path, proxyURL)
 		return
 	}
 
-	rc, err = doFetchMetadata(ctx, "https", path)
+	rc, err = doFetchMetadata(ctx, "https", path, proxyURL)
 	if err == nil {
 		return
 	}
 
-	rc, err = doFetchMetadata(ctx, "http", path)
+	rc, err = doFetchMetadata(ctx, "http", path, proxyURL)
 	return
 }
 
-func doFetchMetadata(ctx context.Context, scheme, path string) (io.ReadCloser, error) {
+func doFetchMetadata(ctx context.Context, scheme, path, proxyURL string) (io.ReadCloser, error) {
 	url := fmt.Sprintf("%s://%s?go-get=1", scheme, path)
 	switch scheme {
 	case "https", "http":
@@ -848,7 +861,7 @@ func doFetchMetadata(ctx context.Context, scheme, path string) (io.ReadCloser, e
 			return nil, errors.Wrapf(err, "unable to build HTTP request for URL %q", url)
 		}
 
-		resp, err := http.DefaultClient.Do(req.WithContext(ctx))
+		resp, err := httpClient(proxyURL).Do(req.WithContext(ctx))
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed HTTP request to URL %q", url)
 		}
@@ -859,13 +872,28 @@ func doFetchMetadata(ctx context.Context, scheme, path string) (io.ReadCloser, e
 	}
 }
 
+func httpClient(proxyURL string) (client *http.Client) {
+	return &http.Client{
+		Transport: &http.Transport{
+			Proxy: func(request *http.Request) (url *url.URL, err error) {
+				if proxyURL != "" {
+					url, err = url.Parse(proxyURL)
+				} else {
+					url, err = http.ProxyFromEnvironment(request)
+				}
+				return
+			},
+		},
+	}
+}
+
 // getMetadata fetches and decodes remote metadata for path.
 //
 // scheme is optional. If it's http, only http will be attempted for fetching.
 // Any other scheme (including none) will first try https, then fall back to
 // http.
-func getMetadata(ctx context.Context, path, scheme string) (string, string, string, error) {
-	rc, err := fetchMetadata(ctx, path, scheme)
+func getMetadata(ctx context.Context, path, scheme, proxyURL string) (string, string, string, error) {
+	rc, err := fetchMetadata(ctx, path, scheme, proxyURL)
 	if err != nil {
 		return "", "", "", errors.Wrapf(err, "unable to fetch raw metadata")
 	}

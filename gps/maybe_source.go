@@ -44,7 +44,8 @@ func sourceCachePath(cacheDir, sourceURL string) string {
 }
 
 type maybeGitSource struct {
-	url *url.URL
+	url      *url.URL
+	proxyURL string
 }
 
 func (m maybeGitSource) try(ctx context.Context, cachedir string) (source, error) {
@@ -62,7 +63,7 @@ func (m maybeGitSource) try(ctx context.Context, cachedir string) (source, error
 
 	return &gitSource{
 		baseVCSSource: baseVCSSource{
-			repo: &gitRepo{r},
+			repo: &gitRepo{GitRepo: r, proxyURL: m.proxyURL},
 		},
 	}, nil
 }
@@ -87,6 +88,7 @@ type maybeGopkginSource struct {
 	major uint64
 	// whether or not the source package is "unstable"
 	unstable bool
+	proxyURL string
 }
 
 func (m maybeGopkginSource) try(ctx context.Context, cachedir string) (source, error) {
@@ -109,7 +111,7 @@ func (m maybeGopkginSource) try(ctx context.Context, cachedir string) (source, e
 	return &gopkginSource{
 		gitSource: gitSource{
 			baseVCSSource: baseVCSSource{
-				repo: &gitRepo{r},
+				repo: &gitRepo{GitRepo: r, proxyURL: m.proxyURL},
 			},
 		},
 		major:    m.major,

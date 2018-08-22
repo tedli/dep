@@ -14,8 +14,11 @@ import (
 	"strings"
 	"time"
 
+	"fmt"
 	"github.com/Masterminds/vcs"
 	"github.com/pkg/errors"
+	"os/exec"
+	"syscall"
 )
 
 type ctxRepo interface {
@@ -38,6 +41,78 @@ type ensureCleaner interface {
 
 type gitRepo struct {
 	*vcs.GitRepo
+	proxyURL string
+}
+
+const (
+	proxyTypeHTTP  = "http.proxy"
+	proxyTypeHTTPS = "https.proxy"
+)
+
+func (gr gitRepo) ensureProxy() (err error) {
+	if gr.proxyURL == "" {
+		if err = gr.unsetProxyInternal(proxyTypeHTTP); err != nil {
+			return
+		}
+		if err = gr.unsetProxyInternal(proxyTypeHTTPS); err != nil {
+			return
+		}
+		return
+	}
+	var proxyURL string
+	if proxyURL, err = gr.getProxyInternal(proxyTypeHTTP); err != nil {
+		return
+	}
+	if proxyURL != gr.proxyURL {
+		if err = gr.setProxyInternal(proxyTypeHTTP); err != nil {
+			return
+		}
+	}
+	if proxyURL, err = gr.getProxyInternal(proxyTypeHTTPS); err != nil {
+		return
+	}
+	if proxyURL != gr.proxyURL {
+		if err = gr.setProxyInternal(proxyTypeHTTPS); err != nil {
+			return
+		}
+	}
+	return
+}
+
+func (gr gitRepo) setProxyInternal(proxyType string) (err error) {
+	_, err = gr.GitRepo.RunFromDir("git", "config", proxyType, gr.proxyURL)
+	return
+}
+
+func (gr gitRepo) unsetProxyInternal(proxyType string) (err error) {
+	if _, err = gr.GitRepo.RunFromDir("git", "config", "--unset", proxyType); err != nil {
+		if isExitWithCode(err, 5) {
+			err = nil
+		}
+	}
+	return
+}
+
+func (gr gitRepo) getProxyInternal(proxyType string) (proxyURL string, err error) {
+	var out []byte
+	if out, err = gr.GitRepo.RunFromDir("git", "config", "--get", "https.proxy"); err != nil {
+		if isExitWithCode(err, 1) {
+			err = nil
+		}
+	}
+	if out != nil {
+		proxyURL = strings.TrimSpace(string(out))
+	}
+	return
+}
+
+func isExitWithCode(err error, code int) (is bool) {
+	var ee *exec.ExitError
+	if ee, is = err.(*exec.ExitError); !is {
+		return
+	}
+	is = code == ee.Sys().(syscall.WaitStatus).ExitStatus()
+	return
 }
 
 func newVcsRemoteErrorOr(err error, args []string, out, msg string) error {
@@ -54,17 +129,28 @@ func newVcsLocalErrorOr(err error, args []string, out, msg string) error {
 	return vcs.NewLocalError(msg, errors.Wrapf(err, "command failed: %v", args), out)
 }
 
+func (r gitRepo) Ping() bool {
+	if err := r.ensureProxy(); err != nil {
+		return false
+	}
+	return r.GitRepo.Ping()
+}
+
 func (r *gitRepo) get(ctx context.Context) error {
-	cmd := commandContext(
-		ctx,
-		"git",
+	args := make([]string, 0, 8)
+	if r.proxyURL != "" {
+		args = append(args,
+			"-c", fmt.Sprintf("http.proxy=%s", r.proxyURL),
+			"-c", fmt.Sprintf("https.proxy=%s", r.proxyURL))
+	}
+	args = append(args,
 		"clone",
 		"--recursive",
 		"-v",
 		"--progress",
 		r.Remote(),
-		r.LocalPath(),
-	)
+		r.LocalPath())
+	cmd := commandContext(ctx, "git", args...)
 	// Ensure no prompting for PWs
 	cmd.SetEnv(append([]string{"GIT_ASKPASS=", "GIT_TERMINAL_PROMPT=0"}, os.Environ()...))
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -76,6 +162,9 @@ func (r *gitRepo) get(ctx context.Context) error {
 }
 
 func (r *gitRepo) fetch(ctx context.Context) error {
+	if err := r.ensureProxy(); err != nil {
+		return err
+	}
 	cmd := commandContext(
 		ctx,
 		"git",
@@ -108,6 +197,9 @@ func (r *gitRepo) updateVersion(ctx context.Context, v string) error {
 // defendAgainstSubmodules tries to keep repo state sane in the event of
 // submodules. Or nested submodules. What a great idea, submodules.
 func (r *gitRepo) defendAgainstSubmodules(ctx context.Context) error {
+	if err := r.ensureProxy(); err != nil {
+		return err
+	}
 	// First, update them to whatever they should be, if there should happen to be any.
 	{
 		cmd := commandContext(

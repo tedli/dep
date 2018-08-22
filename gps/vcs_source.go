@@ -20,7 +20,8 @@ import (
 )
 
 type baseVCSSource struct {
-	repo ctxRepo
+	repo     ctxRepo
+	proxyURL string
 }
 
 func (bs *baseVCSSource) sourceType() string {

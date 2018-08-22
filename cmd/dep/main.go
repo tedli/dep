@@ -60,7 +60,6 @@ func main() {
 	flag.IntVar(&p.memProfileRate, "memprofilerate", 0, "Enable more precise memory profiles by setting runtime.MemProfileRate.")
 	flag.StringVar(&p.mutexProfile, "mutexprofile", "", "Writes a mutex profile to the specified file before exiting.")
 	flag.IntVar(&p.mutexProfileFraction, "mutexprofilefraction", 0, "Enable more precise mutex profiles by runtime.SetMutexProfileFraction.")
-	flag.Parse()
 
 	wd, err := os.Getwd()
 	if err != nil {
@@ -68,14 +67,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	args := append([]string{os.Args[0]}, flag.Args()...)
 	c := &Config{
-		Args:       args,
 		Stdout:     os.Stdout,
 		Stderr:     os.Stderr,
 		WorkingDir: wd,
 		Env:        os.Environ(),
 	}
+	flag.StringVar(&c.proxyURL, "proxyurl", "", "eg. socks5://127.0.0.1:1080")
+	flag.Parse()
+	args := append([]string{os.Args[0]}, flag.Args()...)
+	c.Args = args
 
 	if err := p.start(); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to profile: %v\n", err)
@@ -95,6 +96,7 @@ type Config struct {
 	Args           []string  // Command-line arguments, starting with the program name.
 	Env            []string  // Environment variables
 	Stdout, Stderr io.Writer // Log output
+	proxyURL       string
 }
 
 // Run executes a configuration and returns an exit code.
@@ -203,6 +205,7 @@ func (c *Config) Run() int {
 				DisableLocking: getEnv(c.Env, "DEPNOLOCK") != "",
 				Cachedir:       cachedir,
 				CacheAge:       cacheAge,
+				ProxyURL:       c.proxyURL,
 			}
 
 			GOPATHS := filepath.SplitList(getEnv(c.Env, "GOPATH"))

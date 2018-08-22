@@ -5,6 +5,17 @@
   <a href="https://goreportcard.com/report/github.com/golang/dep"><img src="https://goreportcard.com/badge/github.com/golang/dep" /></a>
 </p>
 
+## My Fork
+
+add `dep -proxyurl=socks5://127.0.0.1` liked argument, this argument works with `go-get=1` fetching manifest and git operations.
+
+git proxy not effect at global scope.
+
+### Futher
+
+introduce a config file (something like ~/.depconfig), to specify proxies and rules to define when to use which proxy in detail.
+
+
 ## Dep
 
 `dep` is a dependency management tool for Go. It requires Go 1.9 or newer to compile.
